@@ -6,6 +6,7 @@ mod mul;
 mod montgomery;
 mod params;
 mod tests;
+mod field;
 
 pub use bignum::BigNum;
 pub use addsub::{bignum_add_no_mod, bignum_sub_no_mod};
