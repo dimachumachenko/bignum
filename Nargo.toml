@@ -1,0 +1,7 @@
+[package]
+name = "bignum_gost"
+type = "bin"
+authors = [""]
+entry = "src/lib.nr"
+
+[dependencies]
