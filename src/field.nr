@@ -102,3 +102,17 @@ pub fn field_inv_fermat<let N: u32, let P: u32>(
     field_pow_bnexp::<N, P>(ctx, a, p_minus_2)
 }
 
+pub fn field_inv<let N: u32, let P: u32>(
+    ctx: MontCtx<N, P>, a: FieldElt<N, P>
+) -> (MontCtx<N, P>, FieldElt<N, P>) {
+    let two = {
+        let mut arr: [u128; N] = [0u128; N];
+        arr[0] = 2u128;
+        BigNum::<N>::from_limbs(arr)
+    };
+
+    let (p_minus_2, _br) = bignum_sub_no_mod::<N>(ctx.p, two);
+
+    field_pow_bnexp::<N, P>(ctx, a, p_minus_2)
+}
+

@@ -1,5 +1,5 @@
 use crate::montgomery::MontCtx;
-use crate::field::{FieldElt, field_add, field_sub, field_mul, field_square};
+use crate::field::{FieldElt, field_add, field_sub, field_mul, field_square,field_inv};
 use crate::cmp::bignum_ct_eq;
 use crate::bignum::BigNum;
 use crate::ec_types::{ECParams, AffinePoint, JacobianPoint};
@@ -161,3 +161,88 @@ pub fn point_add_mixed<let N: u32, let P: u32>(
     (ctx25, out2)
 }
 
+
+pub fn jacobian_to_affine<let N: u32, let P: u32>(
+    ctx: MontCtx<N, P>, p: JacobianPoint<N, P>
+) -> (MontCtx<N, P>, AffinePoint<N, P>) {
+    let is_inf = jacobian_is_inf::<N, P>(p) & 1u128;
+    let non_inf = (1u128 - is_inf) & 1u128;
+
+    let (ctx1, z2) = field_square::<N, P>(ctx, p.Z);          // Z^2
+    let (ctx2, z3) = field_mul::<N, P>(ctx1, z2, p.Z);        // Z^3
+
+    let (ctx3, z_inv) = field_inv::<N, P>(ctx2, p.Z);         // Z^{-1}
+    let (ctx4, z2_inv) = field_square::<N, P>(ctx3, z_inv);   // Z^{-2}
+    let (ctx5, z3_inv) = field_mul::<N, P>(ctx4, z2_inv, z_inv); // Z^{-3}
+
+    let (ctx6, x_aff_raw) = field_mul::<N, P>(ctx5, p.X, z2_inv);
+    let (ctx7, y_aff_raw) = field_mul::<N, P>(ctx6, p.Y, z3_inv);
+
+    let zero_fe = fe_zero::<N, P>();
+    let one_fe  = fe_one::<N, P>();
+
+    let real_x = x_aff_raw.mont;
+    let real_y = y_aff_raw.mont;
+
+    let inf_x = zero_fe.mont;
+    let inf_y = one_fe.mont;
+
+    let x_m = BigNum::<N>::ct_select(inf_x, real_x, non_inf);
+    let y_m = BigNum::<N>::ct_select(inf_y, real_y, non_inf);
+
+    let out = AffinePoint::<N, P> {
+        x: FieldElt::<N, P> { mont: x_m },
+        y: FieldElt::<N, P> { mont: y_m },
+        is_inf: is_inf,
+    };
+
+    (ctx7, out)
+}
+
+pub fn is_on_curve<let N: u32, let P: u32>(
+    ctx: MontCtx<N, P>, params: ECParams<N, P>, p: AffinePoint<N, P>
+) -> (MontCtx<N, P>, u128) {
+    let is_inf = p.is_inf & 1u128;
+    let non_inf = (1u128 - is_inf) & 1u128;
+
+    let (ctx1, y2) = field_square::<N, P>(ctx, p.y);
+
+    let (ctx2, x2) = field_square::<N, P>(ctx1, p.x);
+    let (ctx3, x3) = field_mul::<N, P>(ctx2, x2, p.x);
+
+    let (ctx4, ax) = field_mul::<N, P>(ctx3, params.a, p.x);
+
+    let (ctx5, tmp) = field_add::<N, P>(ctx4, x3, ax);
+    let (ctx6, rhs) = field_add::<N, P>(ctx5, tmp, params.b);
+
+    let eq = bignum_ct_eq::<N>(y2.mont, rhs.mont);
+
+    let res = (eq & non_inf) | is_inf;
+
+    (ctx6, res)
+}
+
+pub fn ec_is_on_curve<let N: u32, let P: u32>(
+    ctx: MontCtx<N, P>,
+    params: ECParams<N, P>,
+    q: AffinePoint<N, P>,
+) -> (MontCtx<N, P>, u128) {
+    let is_inf: u128 = q.is_inf & 1u128;
+
+    let (ctx1, y2) = field_square::<N, P>(ctx, q.y);
+
+    let (ctx2, x2) = field_square::<N, P>(ctx1, q.x);
+    let (ctx3, x3) = field_mul::<N, P>(ctx2, x2, q.x);
+
+    let (ctx4, ax) = field_mul::<N, P>(ctx3, params.a, q.x);
+
+    let (ctx5, tmp) = field_add::<N, P>(ctx4, x3, ax);
+    let (ctx6, rhs) = field_add::<N, P>(ctx5, tmp, params.b);
+
+    let eq: u128 = bignum_ct_eq::<N>(y2.mont, rhs.mont);
+
+    let not_inf: u128 = 1u128 - is_inf;
+    let res: u128 = (eq & not_inf) | is_inf;
+
+    (ctx6, res)
+}

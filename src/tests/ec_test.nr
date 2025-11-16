@@ -2,7 +2,7 @@ use crate::montgomery::MontCtx;
 use crate::bignum::BigNum;
 use crate::field::{FieldElt, field_from_big};
 use crate::ec_types::{ECParams, AffinePoint, JacobianPoint};
-use crate::ec_jacobian::{point_add_mixed, point_double, jacobian_equal_proj, affine_to_jacobian};
+use crate::ec_jacobian::{point_add_mixed, point_double, jacobian_equal_proj, affine_to_jacobian, jacobian_to_affine, is_on_curve,ec_is_on_curve};
 use crate::scalar_mul::{scalar_mul, scalar_mul_trivial_point};
 use crate::cmp::bignum_ct_eq;
 use crate::scalar_mul::scalar_mul_small;
@@ -80,7 +80,6 @@ fn ec_double_of_infinity_is_infinity() {
 
 #[test]
 fn ec_scalar_mul_trivial_ks() {
-    println("Start");
     let ctx0 = MontCtx::<2, 4> { p: test_p_N2(), r2: test_r2_N2(), ninv: test_ninv() };
 
     let (ctx1, a_fe) = make_fe::<2, 4>(ctx0, 0u128, 0u128);
@@ -91,18 +90,15 @@ fn ec_scalar_mul_trivial_ks() {
 
     let k0 = BigNum::<2>::from_limbs([0u128, 0u128]);
     let (ctx3, r0) = scalar_mul_trivial_point::<2, 4>(ctx2, params, q, k0);
-    println("scalar_mul: fast path (Q=inf or k=0)");
     let zero_bn = BigNum::<2>::from_limbs([0u128, 0u128]);
     assert(bignum_ct_eq::<2>(r0.Z.mont, zero_bn) == 1u128);
 
     let k1 = BigNum::<2>::from_limbs([1u128, 0u128]);
     let (ctx4, r1) = scalar_mul_trivial_point::<2, 4>(ctx3, params, q, k1);
-    println("scalar_mul: fast path (k=1)");
     assert(bignum_ct_eq::<2>(r1.Z.mont, zero_bn) == 1u128);
 
     let k2 = BigNum::<2>::from_limbs([2u128, 0u128]);
     let (_ctx5, r2) = scalar_mul_trivial_point::<2, 4>(ctx4, params, q, k2);
-    println("scalar_mul: fast path (Q=inf covers all k)");
     assert(bignum_ct_eq::<2>(r2.Z.mont, zero_bn) == 1u128);
 }
 
@@ -137,5 +133,68 @@ fn ec_scalar_mul_matches_repeated_add() {
 
     let (_ctx9, eq) = jacobian_equal_proj::<2, 4>(ctx8, r_mul, three_q);
     assert(eq == 1u128);
+}
+
+#[test]
+fn ec_affine_jacobian_roundtrip() {
+
+    let ctx0 = MontCtx::<2, 4> {
+        p: test_p_N2(),
+        r2: test_r2_N2(),
+        ninv: test_ninv(),
+    };
+
+    let (ctx1, a_fe) = make_fe::<2, 4>(ctx0, 0u128, 0u128);
+    let (ctx2, b_fe) = make_fe::<2, 4>(ctx1, 7u128, 0u128);
+    let params = ECParams::<2, 4> { a: a_fe, b: b_fe };
+
+    let (ctx3, qx) = make_fe::<2, 4>(ctx2, 5u128, 0u128);
+    let (ctx4, qy) = make_fe::<2, 4>(ctx3, 9u128, 0u128);
+    let q = AffinePoint::<2, 4> { x: qx, y: qy, is_inf: 0u128 };
+
+    let (ctx5, qj) = affine_to_jacobian::<2, 4>(ctx4, q);
+
+    let (_ctx6, q_back) = jacobian_to_affine::<2, 4>(ctx5, qj);
+
+    let eq_x = bignum_ct_eq::<2>(q.x.mont, q_back.x.mont);
+    let eq_y = bignum_ct_eq::<2>(q.y.mont, q_back.y.mont);
+    let eq_inf = (q.is_inf == q_back.is_inf) as u128;
+
+    assert(eq_x == 1u128);
+    assert(eq_y == 1u128);
+    assert(eq_inf == 1u128);
+}
+
+#[test]
+fn ec_is_on_curve_checks_points() {
+
+    let ctx0 = MontCtx::<2, 4> {
+        p: test_p_N2(),
+        r2: test_r2_N2(),
+        ninv: test_ninv(),
+    };
+
+    let (ctx1, a_fe) = make_fe::<2, 4>(ctx0, 0u128, 0u128);
+    let (ctx2, b_fe) = make_fe::<2, 4>(ctx1, 7u128, 0u128);
+    let params = ECParams::<2, 4> { a: a_fe, b: b_fe };
+
+    let q_inf = AffinePoint::<2, 4> {
+        x: fe_zero::<2, 4>(),
+        y: fe_one::<2, 4>(),
+        is_inf: 1u128,
+    };
+    let (ctx3, on_curve_inf) = ec_is_on_curve::<2, 4>(ctx2, params, q_inf);
+    assert(on_curve_inf == 1u128);
+
+    let (ctx4, qx) = make_fe::<2, 4>(ctx3, 5u128, 0u128);
+    let (ctx5, qy) = make_fe::<2, 4>(ctx4, 9u128, 0u128);
+    let q = AffinePoint::<2, 4> {
+        x: qx,
+        y: qy,
+        is_inf: 0u128,
+    };
+
+    let (_ctx6, on_curve_q) = ec_is_on_curve::<2, 4>(ctx5, params, q);
+    assert(on_curve_q == 0u128);
 }
 
